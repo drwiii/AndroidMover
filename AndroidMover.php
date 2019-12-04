@@ -1,7 +1,7 @@
 #!/usr/bin/php -q
 <?php
 //
-// AndroidMover v1.2
+// AndroidMover v1.3, Nov 11 2019 03:17
 // Douglas Winslow <winslowdoug@gmail.com>
 // This software crawls and caches a remote handset SDK repository.
 //
@@ -16,6 +16,8 @@
 //  Added source comments to show how the parser works.
 //  Added release channels to URL loader: We use the name, not the channel reference id.
 //  Provided clarification on why crawling is permitted and why I do what I do.
+// v1.3:
+//  First try at download management.
 //
 
 //
@@ -28,7 +30,7 @@
 //  [android]
 //
 
-print "AndroidMover v1.2\n";
+print "AndroidMover v1.3\n";
 print "Copyright (C) 2019 Douglas Winslow. All Rights Reserved.\n";
 print "\n";
 
@@ -38,7 +40,9 @@ print "\n";
 //  dependency resolution for local installation
 //  consider copying remote robots.txt as a local file if it exists and if Android Studio attempts to access it
 //  add repository list from https://dl.google.com/android/repository/addons_list-3.xml
-//  calculate archive sha1 checksum if exists
+// fix xpath
+// /sys-img:sdk-sys-img/remotepackage >
+// /sys-img:sdk-sys-img/remotepackage/type-details >
 
 error_reporting(0);	// because it's convenient.
 
@@ -107,10 +111,10 @@ foreach ($repo as $a)	// loop: fill $a with the next member of $repo, then do th
 			if (!file_exists($dp))		// if the file named in $dp doesn't exist, then do this
 				file_put_contents($dp, file_get_contents($a['url']));	// get the current URL from remote server and put it into the file at $dp
 		}
-		else
+		else	// if it is probably a directory name, then do this
 			mkdir($dp);	// make a directory named what's set in $dp, starting with CWD, if $d is not an .xml filename. (we recursively call this to build the directory structure.)
 	}
-	unset($dp);	// it is good practice to free unused variables to save resources; this is necessary in this type of design.
+	unset($dp);	// it is good practice to free unused variables to save resources; this is necessary in this type of design. do not let the computer do your job.
 
 	// load local xml file
 	print "\n";
@@ -207,30 +211,50 @@ foreach ($repo as $a)	// loop: fill $a with the next member of $repo, then do th
 		if (substr($xp, -5) == "/size")	// if it's a size tag, then do this
 		{
 			$gt += $V;	// add the number we found as the value to our grand total $gt
-			$fsize = $V;
+			$fsize = $V;	// set $fsize to current size value for size comparison
 		}
+		else if (substr($xp, -9) == "/checksum")
+			$fchecksum = $V;
 		else if (substr($xp, -4) == "/url")	// if it's a url tag, then do this
 		{
-			$urls[(int)$u++] = substr($a['url'], 0, strrpos($a['url'], "/") + 1).$V;	// add it to the path url, then add a path separator and the filename we found as the value.
-			$remoteurls[$channel[$chanref]][(int)$u++] = substr($a['url'], 0, strrpos($a['url'], "/") + 1).$V;	// bonus: categorize by channel
-			$furl = $V;
+			$furl = substr($a['url'], 0, strrpos($a['url'], "/") + 1).$V;	// add it to the path url, then add a path separator and the filename we found as the value.
+
+//			(int)$uc++;
+//			$urls[$uc] = $furl;	// prepare url list
+//			$remoteurls[$channel[$chanref]][$uc] = $furl;	// bonus: categorize by channel
+			$ffile = $V;	// set $furl to current URL value for use with size comparison
 		}
 
-		if (substr($xp, -8) == "/archive" and $z['type'] == "close")	// if the archive tag is completed, then do this
+		if (substr($xp, -8) == "/archive" and $z['type'] == "close")	// if the archive tag is complete, then do this
 		{
+			(int)$u++;
+			$remotefiles[$u] = array(
+					"id" => $u,
+					"remoteurl" => $furl,
+					"localfilename" => $ffile,
+					"size" => $fsize,
+					"sha1sum" => $fchecksum,
+				);
+
 			if ($fsize > $high)	// this routine seizes high and low sizes for the result
 			{
-				if (!$low) $low = $high;
 				$high = $fsize;
-				$highfile = $furl;
+				$highfile = $ffile;
+				if (!$low)
+				{
+					$low = $high;
+					$lowfile = $highfile;
+				}
 			}
 			else if ($fsize < $low)
 			{
 				$low = $fsize;
-				$lowfile = $furl;
+				$lowfile = $ffile;
 			}
 			unset($fsize);
 			unset($furl);
+			unset($ffile);
+			unset($fchecksum);
 		}
 
 		// unset tag attributes and value to prepare for the next iteration.
@@ -243,6 +267,7 @@ foreach ($repo as $a)	// loop: fill $a with the next member of $repo, then do th
 
 //foreach ($urls as $url) print $url."\n";			// loop: print all URLs we found in the XML files. (see variable preparation above)
 //foreach ($remoteurls['canary'] as $url) print $url."\n";	// loop: bonus, print only URLs in a certain release channel
+//foreach ($remotefiles as $a) print_r($a);			// loop: show array struct with relevant data
 
 // Run a disk space analysis to determine how much local space is necessary to copy all found URLs to separate local files.
 // This calculation doesn't consider existing local files or duplicate remote URLs in the array.
@@ -252,11 +277,86 @@ print "\n";
 
 $dt = disk_free_space(".");	// get the amount of free disk space in the CWD for a result.
 print number_format(floor($dt/1024),0,".",",")." KB of room is available for use in this directory.\n";
-if ($gt > $dt) print number_format(floor(($gt-$dt)/1024),0)." KB is necessary to copy the repositories to this directory.\n\n";
+if ($gt > $dt) print number_format(floor(($gt-$dt)/1024),0)." KB is necessary to copy the repositories to this directory.\n";
+print "\n";
 
 print "SIZE TABLE\n";	// things status:
 print "  low size:  ".number_format($low, 0)." bytes in ".$lowfile."\n";	// small
 print " high size:  ".number_format($high, 0)." bytes in ".$highfile."\n\n";	// great
+
+// wget --input-file=urllist.txt
+// for i in `cat urllist.txt`; do wget -c $i; done
+print count($remotefiles)." remote files found.\n";
+$g=0;
+foreach ($remotefiles as $rf)
+{
+	$g++;
+	print $g."/".count($remotefiles)." = ".$rf['localfilename']."\n";
+
+	$tp = "download".$g.".tmp";
+	$a = explode("https://", $rf['remoteurl']);
+	$b = explode("/", $a[1]);
+	$dp = ".";
+	foreach ($b as $c) $dp .= "/".$c;
+	print "remote is ".$rf['size']." bytes, SHA1 ".$rf['sha1sum']."\n";
+
+	unset($fail);
+	unset($shasum);
+	unset($bytesum);
+	$fail = TRUE;
+	if (!file_exists($dp))
+	{
+		if ($rf['size'] <= 1048576)	// set selector criteria, 1 megabyte to test.
+		{
+			print "wait.";
+			file_put_contents($tp, file_get_contents($rf['remoteurl']));
+			print "\r";
+
+			$shasum = sha1_file($tp);
+			$bytesum = filesize($tp);
+			if ($rf['size'] == $bytesum)	// if remote file size equals local file size, then do this
+			{
+				if ($rf['sha1sum'] == $shasum)	// if remote SHA1 equals local SHA1, then do this
+				{
+					$fail = FALSE;
+					rename($tp, $dp);			// promote to archive directory
+				}
+				else	// if remote SHA1 does not equal local SHA1, then do this
+				{
+					$fail = TRUE;
+					rename($tp, "download".$g."-".time().".fail");	// demote to stored temporary file
+				}
+			}
+		}
+		else
+		{
+			$fail = FALSE;
+			print " local is not scheduled for copy\n";
+		}
+	}
+	else
+	{
+		$shasum = sha1_file($dp);
+		$bytesum = filesize($dp);
+		$fail = TRUE;
+		if ($rf['size'] == $bytesum and $rf['sha1sum'] == $shasum) $fail = FALSE;
+	}
+
+	if ($bytesum or $shasum) print " local is ".$bytesum." bytes, SHA1 ".$shasum."\n";
+	if ($fail != TRUE and $fail != FALSE) {print "ERROR\n"; $fail = TRUE; exit(1);}
+	if ($fail == TRUE) print "FAILED\n";
+	if (file_exists($tp)) unlink($tp);
+	unset($bytesum);
+	unset($shasum);
+	unset($fail);
+
+	print "\n";
+}
+print "\n";
+
+//foreach ($y as $z)	// preferred
+//{
+//}
 
 print "Learn about legal resources if you are living with autism:\n";
 print "   https://www.autism-society.org/living-with-autism/legal-resources/ \n";
@@ -264,7 +364,5 @@ print "   https://www.autism-society.org/living-with-autism/legal-resources/ \n"
 print "Help me to offset development costs:\n";
 print "   https://www.paypal.me/drwinslow \n";
 
-// wget --input-file=urllist.txt
-// for i in `cat urllist.txt`; do wget -c $i; done
 exit(0);
 ?>
