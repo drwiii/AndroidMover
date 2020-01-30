@@ -1,7 +1,7 @@
 #!/usr/bin/php -q
 <?php
 //
-// AndroidMover v1.3, Nov 11 2019 03:17
+// AndroidMover v1.4, Dec 4 2019 12:08
 // Douglas Winslow <winslowdoug@gmail.com>
 // This software crawls and caches a remote handset SDK repository.
 //
@@ -18,23 +18,28 @@
 //  Provided clarification on why crawling is permitted and why I do what I do.
 // v1.3:
 //  First try at download management.
+// v1.4:
+//  Repair remote file count glitch.
+//  TODO, Add command line switches
+//  TODO, Demote duplicate files
 //
 
 //
 // I wrote this to shift a messy stack of XML into a cool and socially acceptable finite state machine.
 //
-//              \
-//           /  .
-//            .
-//             __/
+//             \
+//          /  .
+//           .
+//            __/
 //  [android]
 //
 
-print "AndroidMover v1.3\n";
+print "AndroidMover v1.4\n";
 print "Copyright (C) 2019 Douglas Winslow. All Rights Reserved.\n";
 print "\n";
 
 // to do:
+//  command line switches
 //  revision control
 //  differential comparison of XML
 //  dependency resolution for local installation
@@ -271,7 +276,7 @@ foreach ($repo as $a)	// loop: fill $a with the next member of $repo, then do th
 
 // Run a disk space analysis to determine how much local space is necessary to copy all found URLs to separate local files.
 // This calculation doesn't consider existing local files or duplicate remote URLs in the array.
-print "There are ".count($urls)." remote files defined in the ".$j." repositories.\n";
+print "There are ".count($remotefiles)." remote files defined in the ".$j." repositories.\n";
 print number_format(floor($gt/1024),0)." KB is represented on the remote server.\n";
 print "\n";
 
@@ -306,6 +311,7 @@ foreach ($remotefiles as $rf)
 	$fail = TRUE;
 	if (!file_exists($dp))
 	{
+//		if ($rf['localfilename'] == "emulator-linux-6061023.zip")
 		if ($rf['size'] <= 1048576)	// set selector criteria, 1 megabyte to test.
 		{
 			print "wait.";
