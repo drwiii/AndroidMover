@@ -1,59 +1,57 @@
-#!/usr/bin/php -q
+#!/usr/bin/env php
 <?php
 //
-// AndroidMover v1.4, Dec 4 2019 12:08
+// AndroidMover version 2.0 (November 29, 2020)
 // Douglas Winslow <winslowdoug@gmail.com>
-// This software crawls and caches a remote handset SDK repository.
+// This software downloads a remote handset SDK repository.
 //
 // Code versions are on GitHub:   https://github.com/drwiii/AndroidMover/
 // Help me via PayPal:            https://www.paypal.me/drwinslow
 //
-// v1.0:
+// version 1.0:
 //  Created XML parser unwinder with single repository support.
-// v1.1:
+// version 1.1:
 //  Supports multiple repositories. Initial public release.
-// v1.2:
-//  Added source comments to show how the parser works.
+// version 1.2:
+//  Added source comments to show how the parser works. *
 //  Added release channels to URL loader: We use the name, not the channel reference id.
 //  Provided clarification on why crawling is permitted and why I do what I do.
-// v1.3:
+// version 1.3:
 //  First try at download management.
-// v1.4:
+// version 1.4:
 //  Repair remote file count glitch.
-//  TODO, Add command line switches
-//  TODO, Demote duplicate files
+// version 2.0:
+//  Explained file download selector if() statement criteria.
+//  TO DO. Add command line switches.
+//  TO DO. Demote duplicate files in download queue.
+//  TO DO. Consider downloading robots.txt if Android Studio's source code does.
 //
 
 //
-// I wrote this to shift a messy stack of XML into a cool and socially acceptable finite state machine.
-//
-//             \
-//          /  .
-//           .
-//            __/
-//  [android]
+//              \
+//           /  .
+//            .
+//             __/
+//  [Android]
 //
 
-print "AndroidMover v1.4\n";
-print "Copyright (C) 2019 Douglas Winslow. All Rights Reserved.\n";
 print "\n";
+print a("AndroidMover version 2.0");
+print a("Copyright (C) 2019-2020 Douglas Winslow.");
+print a("All Rights Reserved.");
 
-// to do:
-//  command line switches
-//  revision control
-//  differential comparison of XML
-//  dependency resolution for local installation
-//  consider copying remote robots.txt as a local file if it exists and if Android Studio attempts to access it
-//  add repository list from https://dl.google.com/android/repository/addons_list-3.xml
-// fix xpath
-// /sys-img:sdk-sys-img/remotepackage >
-// /sys-img:sdk-sys-img/remotepackage/type-details >
+print "\n";
+print a("In memory of Ann Winslow.")."\n"; function a($a){return(str_repeat(" ",40-(strlen($a)/2)).$a."\n");}	//
+print str_repeat("-", 80)."\n";
 
 error_reporting(0);	// because it's convenient.
 
-// define repository list, seen in Android Studio
+//
+// I wrote this to shift a messy stack of XML into a cool and socially acceptable finite state machine. Sorry to rub it in..
+//
+
+// define repository list, seen in Android Studio via https://dl.google.com/android/repository/addons_list-3.xml
 // - changed variable name from $repolist; this is because I own things in storage that are at threat of being repossessed.
-// - demoted and disabled the "Intel HAXM" repository due to its dubious necessity for a working Android SDK.
 $repositories = "
 true	Android Automotive System Images	https://dl.google.com/android/repository/sys-img/android-automotive/sys-img2-1.xml
 true	Android Repository	https://dl.google.com/android/repository/repository2-1.xml
@@ -66,16 +64,18 @@ true	Google API add-on System Images	https://dl.google.com/android/repository/sy
 true	Google API with Playstore System Images	https://dl.google.com/android/repository/sys-img/google_apis_playstore/sys-img2-1.xml
 true	Google Inc.	https://dl.google.com/android/repository/addon2-1.xml
 true	Offline Repo	file:/opt/android-studio/plugins/sdk-updates/offline-repo/offline-repo.xml
-false	Intel HAXM	https://dl.google.com/android/repository/extras/intel/addon2-1.xml
+true	Intel HAXM	https://dl.google.com/android/repository/extras/intel/addon2-1.xml
 ";
 
-define(GR_REPOSITORY_ACTIVE, 0);	// column ID of whether or not the repository line is active
-define(GR_REPOSITORY_TITLE, 1);		// column ID of the title of the repository
-define(GR_REPOSITORY_URL, 2);		// column ID of the URL that we version in a future update
+// these descriptors define the columns of the above Google Repository list.
+define("GR_REPOSITORY_ACTIVE", 0);	// column ID of whether or not the repository line is active
+define("GR_REPOSITORY_TITLE", 1);	// column ID of the title of the repository
+define("GR_REPOSITORY_URL", 2);		// column ID of the URL of the repository
 
 // parse repository list into array variable
 $lines = explode("\n", $repositories);	// split the above list into an array via carriage returns.
-foreach ($lines as $line)	// loop: for each line, do this
+$at = "";
+foreach ($lines as $line)	// loop: for each line in lines, do this
 {
 	$repository = explode("\t", $line);
 
@@ -83,43 +83,42 @@ foreach ($lines as $line)	// loop: for each line, do this
 	{
 		if (substr($repository[GR_REPOSITORY_URL], 0, 8) == "https://")
 		{
-			$j++;	// increment array counter
-			$repo[$j]['id'] = $j;
-			$repo[$j]['title'] = $repository[GR_REPOSITORY_TITLE];
-			$repo[$j]['url'] = $repository[GR_REPOSITORY_URL];
-			$repo[$j]['local'] = str_replace("https://", "./", $repository[GR_REPOSITORY_URL]);
+			$at++;	// increment array counter
+			$repo[$at]['id'] = $at;
+			$repo[$at]['title'] = $repository[GR_REPOSITORY_TITLE];
+			$repo[$at]['url'] = $repository[GR_REPOSITORY_URL];
+			$repo[$at]['local'] = str_replace("https://", "./", $repository[GR_REPOSITORY_URL]);
 		}
 	}
 }
-print $j." remote repositories are defined.\n";	// list how many repositories
-print "\n";	// newline
 
-// repossess the repository index
+// repossess the android sdk repository index
 foreach ($repo as $a)	// loop: fill $a with the next member of $repo, then do this
 {
 	// download xml index
 	print "\n";
 	print "REPOSITORY.ID: ".$a['id']."\n";
+	print "\n";
 	print "REPOSITORY.REMOTE.TITLE: \"".$a['title']."\"\n";
 	print "REPOSITORY.REMOTE.NAME: ".$a['url']."\n";
 
 	$b = explode("./", $a['local']);	// parse path into $b
 	$c = explode("/", $b[1]);		// parse $b[1] path into $c
-	$dp = ".";				// set directory/file pointer as the indicator for CWD (current working directory)
+	$dp = ".";				// set directory/file pointer $dp as the indicator for CWD (current working directory)
 	foreach ($c as $d)	// loop: fill $d with the next member of $c, then do this
 	{
-		$dp .= "/".$d;				// add pathing to directory/file pointer, then add the current member of $c
+		$dp .= "/".$d;				// add path separator to directory/file pointer $dp, followed by the current member of $c
 		$dp = str_replace("..", "", $dp);	// perform a sanitize check on the string to make sure there are no path escapes
 
 		if (substr($d, -4) == ".xml")	// if the current directory/file pointer ends with .xml, then do this
 		{ // * if you nest if() statements, PHP will prefer the inner if() if there's an else, such as here. try to use curly braces with if() when possible.
 			if (!file_exists($dp))		// if the file named in $dp doesn't exist, then do this
-				file_put_contents($dp, file_get_contents($a['url']));	// get the current URL from remote server and put it into the file at $dp
+				file_put_contents($dp, file_get_contents($a['url']));	// get the current URL from remote server and put it into the filename at $dp
 		}
 		else	// if it is probably a directory name, then do this
 			mkdir($dp);	// make a directory named what's set in $dp, starting with CWD, if $d is not an .xml filename. (we recursively call this to build the directory structure.)
 	}
-	unset($dp);	// it is good practice to free unused variables to save resources; this is necessary in this type of design. do not let the computer do your job.
+	unset($dp);	// it is good practice to free unused variables to save resources; this is necessary in this type of design. (do not let the computer do your job.)
 
 	// load local xml file
 	print "\n";
@@ -155,16 +154,20 @@ foreach ($repo as $a)	// loop: fill $a with the next member of $repo, then do th
 		else if ($z['type'] == "close")				// else, if the XML parser is indicated a closed tag, then
 			$xpath[$z['level']] = "*";			//  set $xpath at current nesting level as HWM.
 		else							// else,
-			continue;					//  next the loop.
+			continue;					//  bump the loop.
 
 		// set up $xp (our $xpath pointer), and a wholly owned subsidiary of $xpath
 		unset($xp);									// unset previous setting of $xp
 		foreach ($xpath as $x) if ($x == "*") break; else $xp .= "/".strtolower($x);	// loop: if not high water marker (HWM), build $xp
 
-		if ($z['type'] == "complete" and $z['attributes']) $A = $z['attributes'];	// set $A (attributes. this is an array)
-		if ($z['type'] == "complete" and $z['value'] != "") $V = $z['value'];		// set $V (values. this is a string)
+		// set attributes ($A. this is an array.)
+		if (($z['type'] == "complete" or $z['type'] == "open") and $z['attributes']) $A = $z['attributes'];
 
-		if (($z['type'] == "complete" or $z['type'] == "close") and ($A or $V))		// on a complete or close XML tag event, parse
+		// set values ($V. this is a string.)
+		if ($z['type'] == "complete" and $z['value'] != "") $V = $z['value'];
+
+		// on a complete or close XML tag event, parse if we have attributes or values
+		if (($z['type'] == "complete" or $z['type'] == "close") and ($A or $V))
 		{
 			if (substr($xp, -8) == "/license")	// does $xpath end with "/license"?
 			{
@@ -185,7 +188,7 @@ foreach ($repo as $a)	// loop: fill $a with the next member of $repo, then do th
 				//  to any terms and/or conditions presented by the
 				//  Android SDK server, however, it depends on remote
 				//  files, noted in the repository setting, which are
-				//  not under the control of this author (thus, this
+				//  not under the control of this author. (Thus, this
 				//  software being useful.)
 
 				// You can edit the following if() statement if you want
@@ -224,9 +227,10 @@ foreach ($repo as $a)	// loop: fill $a with the next member of $repo, then do th
 		{
 			$furl = substr($a['url'], 0, strrpos($a['url'], "/") + 1).$V;	// add it to the path url, then add a path separator and the filename we found as the value.
 
-//			(int)$uc++;
-//			$urls[$uc] = $furl;	// prepare url list
-//			$remoteurls[$channel[$chanref]][$uc] = $furl;	// bonus: categorize by channel
+//			(int)$uc++;					// increment list index
+//			$urls[$uc] = $furl;				// prepare url list
+//			$remoteurls[$channel[$chanref]][$uc] = $furl;	// categorize by channel
+
 			$ffile = $V;	// set $furl to current URL value for use with size comparison
 		}
 
@@ -241,7 +245,8 @@ foreach ($repo as $a)	// loop: fill $a with the next member of $repo, then do th
 					"sha1sum" => $fchecksum,
 				);
 
-			if ($fsize > $high)	// this routine seizes high and low sizes for the result
+			// this routine seizes high and low sizes for the result
+			if ($fsize > $high)
 			{
 				$high = $fsize;
 				$highfile = $ffile;
@@ -256,6 +261,7 @@ foreach ($repo as $a)	// loop: fill $a with the next member of $repo, then do th
 				$low = $fsize;
 				$lowfile = $ffile;
 			}
+
 			unset($fsize);
 			unset($furl);
 			unset($ffile);
@@ -270,13 +276,14 @@ foreach ($repo as $a)	// loop: fill $a with the next member of $repo, then do th
 	print "\n";	// newline
 }
 
-//foreach ($urls as $url) print $url."\n";			// loop: print all URLs we found in the XML files. (see variable preparation above)
-//foreach ($remoteurls['canary'] as $url) print $url."\n";	// loop: bonus, print only URLs in a certain release channel
+
+//foreach ($urls as $url) print $url."\n";			// loop: bonus, print all URLs we found in the XML files (see above to enable)
+//foreach ($remoteurls['canary'] as $url) print $url."\n";	// loop: bonus, print only URLs in a certain release channel (see above to enable)
 //foreach ($remotefiles as $a) print_r($a);			// loop: show array struct with relevant data
 
 // Run a disk space analysis to determine how much local space is necessary to copy all found URLs to separate local files.
 // This calculation doesn't consider existing local files or duplicate remote URLs in the array.
-print "There are ".count($remotefiles)." remote files defined in the ".$j." repositories.\n";
+print "There are ".count($remotefiles)." remote files defined in the ".$at." repositories.\n";
 print number_format(floor($gt/1024),0)." KB is represented on the remote server.\n";
 print "\n";
 
@@ -286,16 +293,20 @@ if ($gt > $dt) print number_format(floor(($gt-$dt)/1024),0)." KB is necessary to
 print "\n";
 
 print "SIZE TABLE\n";	// things status:
-print "  low size:  ".number_format($low, 0)." bytes in ".$lowfile."\n";	// small
-print " high size:  ".number_format($high, 0)." bytes in ".$highfile."\n\n";	// great
+print "  low size:  ".number_format($low, 0)." bytes; ".$lowfile."\n";		// small
+print " high size:  ".number_format($high, 0)." bytes; ".$highfile."\n\n";	// great
 
 // wget --input-file=urllist.txt
 // for i in `cat urllist.txt`; do wget -c $i; done
-print count($remotefiles)." remote files found.\n";
+
+print "Repository loader routine complete.\n\n";
+print "\n";	// separate the XML parsing from what follows: what to do with the data we found.
+
+// repossess remote files from android sdk server
 $g=0;
-foreach ($remotefiles as $rf)
+foreach ($remotefiles as $rf)	// loop: fill $rf with the next member of $remotefiles, then do this
 {
-	$g++;
+	$g++;	// increment the file counter.
 	print $g."/".count($remotefiles)." = ".$rf['localfilename']."\n";
 
 	$tp = "download".$g.".tmp";
@@ -305,70 +316,74 @@ foreach ($remotefiles as $rf)
 	foreach ($b as $c) $dp .= "/".$c;
 	print "remote is ".$rf['size']." bytes, SHA1 ".$rf['sha1sum']."\n";
 
-	unset($fail);
-	unset($shasum);
-	unset($bytesum);
-	$fail = TRUE;
-	if (!file_exists($dp))
+	unset($shasum);		// unset security variable to an empty status.
+	unset($bytesum);	// unset security variable to an empty status.
+	unset($fail);		// unset security variable to an empty status.
+
+	$fail = TRUE;	// first force a failure assertion: assume that the condition of the file is unusable until it is verified.
+
+	if (file_exists($dp))	// if this filename already exists on disk, then do this
 	{
-//		if ($rf['localfilename'] == "emulator-linux-6061023.zip")
-		if ($rf['size'] <= 1048576)	// set selector criteria, 1 megabyte to test.
+		$shasum = sha1_file($dp);	// set security variable to the SHA1 hash of the downloaded file.
+		$bytesum = filesize($dp);	// set security variable to the size of the downloaded file.
+		if ($rf['size'] == $bytesum and $rf['sha1sum'] == $shasum) $fail = FALSE;	// lower failure assertion flag: file SHA1 hash comparison successful.
+	}
+	else			// if this filename is not on the disk, then do this
+	{
+		// here are some if() statements to run the download loop. only one statement should be in use.
+//		if (TRUE)							// set selector criteria: true assert. try to download everything on the list.
+		if (FALSE)							// set selector criteria: false assert. download nothing on the list.
+//		if ($rf['size'] <= 1048576)					// set selector criteria: get all files 1 megabyte or smaller to test.
+//		if ($rf['localfilename'] == "emulator-linux-6962233.zip")	// set selector criteria: get this filename if it is in any update list.
+//		if (substr($rf['localfilename'],0,9) == "emulator-")		// set selector criteria: get any filename that starts with the quoted string.
+//		if (substr($rf['localfilename'],0,8) == "sources-")		// set selector criteria: get some of the sources from the server.
 		{
 			print "wait.";
-			file_put_contents($tp, file_get_contents($rf['remoteurl']));
+			file_put_contents($tp, file_get_contents($rf['remoteurl']));	// download the remote file into the local temporary file.
 			print "\r";
 
-			$shasum = sha1_file($tp);
-			$bytesum = filesize($tp);
-			if ($rf['size'] == $bytesum)	// if remote file size equals local file size, then do this
+			$shasum = sha1_file($tp);	// set security variable to the SHA1 hash of the temporary file.
+			$bytesum = filesize($tp);	// set security variable to the size of the temporary file.
+			if ($rf['size'] == $bytesum and $rf['sha1sum'] == $shasum) $fail = FALSE;	// lower failure assertion flag: file SHA1 hash comparison successful.
+
+			if ($fail == TRUE)		// if verification failed, then do this
 			{
-				if ($rf['sha1sum'] == $shasum)	// if remote SHA1 equals local SHA1, then do this
-				{
-					$fail = FALSE;
-					rename($tp, $dp);			// promote to archive directory
-				}
-				else	// if remote SHA1 does not equal local SHA1, then do this
-				{
-					$fail = TRUE;
-					rename($tp, "download".$g."-".time().".fail");	// demote to stored temporary file
-				}
+				rename($tp, "download".$g."-".time().".fail");		// demote downloaded file to stored temporary file.
+			}
+			else if ($fail == FALSE)	// otherwise, if verification succeeded, then do this
+			{
+				rename($tp, $dp);					// promote downloaded file to archive.
 			}
 		}
 		else
 		{
-			$fail = FALSE;
+			$fail = FALSE;	// lower failure assertion flag: file is not relevant to this routine.
 			print " local is not scheduled for copy\n";
 		}
 	}
-	else
-	{
-		$shasum = sha1_file($dp);
-		$bytesum = filesize($dp);
-		$fail = TRUE;
-		if ($rf['size'] == $bytesum and $rf['sha1sum'] == $shasum) $fail = FALSE;
-	}
 
 	if ($bytesum or $shasum) print " local is ".$bytesum." bytes, SHA1 ".$shasum."\n";
-	if ($fail != TRUE and $fail != FALSE) {print "ERROR\n"; $fail = TRUE; exit(1);}
-	if ($fail == TRUE) print "FAILED\n";
-	if (file_exists($tp)) unlink($tp);
-	unset($bytesum);
-	unset($shasum);
-	unset($fail);
+	if ($fail != TRUE and $fail != FALSE) { print "ERROR\n"; $fail = TRUE; exit(1); }
+	if ($fail == TRUE) { print "FAILED\n"; $issue++; }
+	if (file_exists($tp)) unlink($tp);	// if temporary file still exists, remove it.
 
 	print "\n";
 }
+
+if ($issue) print $issue." ERROR".($issue>1?"S":"").".\n\n";
+
+print "File action routine complete.\n\n";
+print "\n";	// separate the file action from what follows.
+
+print str_repeat("-", 80)."\n\n";
+
+print a("Learn about legal resources if you are living with autism:");
+print a("https://www.autism-society.org/living-with-autism/legal-resources/");
 print "\n";
 
-//foreach ($y as $z)	// preferred
-//{
-//}
+print a("Please help me pay for development costs:");
+print a("https://www.paypal.me/drwinslow");
+print "\n";
 
-print "Learn about legal resources if you are living with autism:\n";
-print "   https://www.autism-society.org/living-with-autism/legal-resources/ \n";
-
-print "Help me to offset development costs:\n";
-print "   https://www.paypal.me/drwinslow \n";
-
-exit(0);
+exit(0);	// exit to the command prompt with the specified errorcode.
 ?>
